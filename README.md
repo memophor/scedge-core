@@ -1,5 +1,5 @@
 # ⚡ Scedge Core — Smart Cache on the Edge
-> *Open-source edge-layer cache for AI memory and knowledge delivery.*
+> *Edge-layer cache for AI memory and knowledge delivery.*
 
 ---
 
