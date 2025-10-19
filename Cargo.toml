@@ -2,15 +2,64 @@
 name = "scedge"
 version = "0.1.0"
 edition = "2021"
+authors = ["Memophor Labs"]
+description = "Smart Cache on the Edge - Policy-aware edge cache for AI knowledge delivery"
+license = "Apache-2.0"
+repository = "https://github.com/memophor/scedge"
+keywords = ["cache", "edge", "ai", "knowledge", "redis"]
+categories = ["caching", "web-programming"]
 
 [dependencies]
-anyhow = "1"
-axum = { version = "0.7", features = ["json"] }
-chrono = { version = "0.4", features = ["serde"] }
-dotenvy = "0.15"
+# Core async runtime
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "sync", "time"] }
+
+# Web framework
+axum = { version = "0.7", features = ["json", "macros"] }
+tower = "0.4"
+tower-http = { version = "0.5", features = ["trace", "cors"] }
+
+# Redis client
+redis = { version = "0.25", features = ["tokio-comp", "connection-manager", "aio"] }
+
+# Serialization
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-thiserror = "1"
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal"] }
+
+# Date/Time
+chrono = { version = "0.4", features = ["serde"] }
+
+# Authentication & Authorization
+jsonwebtoken = "9"
+sha2 = "0.10"
+hex = "0.4"
+
+# Metrics & Observability
+prometheus = "0.13"
+metrics = "0.22"
+metrics-exporter-prometheus = "0.14"
+
+# Logging & Tracing
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
+tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter", "json"] }
+
+# Error handling
+anyhow = "1"
+thiserror = "1"
+
+# Configuration
+dotenvy = "0.15"
+
+# Async traits
+async-trait = "0.1"
+
+[dev-dependencies]
+# Testing utilities
+tokio-test = "0.4"
+mockall = "0.12"
+reqwest = { version = "0.11", features = ["json"] }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true

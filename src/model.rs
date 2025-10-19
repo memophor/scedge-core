@@ -5,20 +5,81 @@ fn default_confidence() -> f32 {
     1.0
 }
 
+/// Policy context for an artifact - defines access control and compliance requirements
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PolicyContext {
+    pub tenant: String,
+    #[serde(default)]
+    pub phi: bool,
+    #[serde(default)]
+    pub pii: bool,
+    #[serde(default)]
+    pub region: Option<String>,
+    #[serde(default)]
+    pub compliance_tags: Vec<String>,
+}
+
+/// Provenance information - tracks the source and lineage of knowledge
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProvenanceInfo {
+    pub source: String,
+    #[serde(default)]
+    pub hash: Option<String>,
+    #[serde(default)]
+    pub version: Option<String>,
+    #[serde(default)]
+    pub generated_at: Option<DateTime<Utc>>,
+}
+
+/// Artifact metrics - confidence scores and quality metrics
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ArtifactMetrics {
+    #[serde(default = "default_confidence")]
+    pub score: f32,
+    #[serde(default)]
+    pub generated_at: Option<DateTime<Utc>>,
+    #[serde(flatten)]
+    pub extra: serde_json::Value,
+}
+
+/// The core artifact payload containing answer/knowledge and metadata
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ArtifactPayload {
-    pub content: serde_json::Value,
+    /// The actual answer or knowledge content
+    #[serde(alias = "content")]
+    pub answer: serde_json::Value,
+
+    /// Policy context for access control
+    pub policy: PolicyContext,
+
+    /// Provenance tracking
     #[serde(default)]
-    pub provenance: Option<serde_json::Value>,
+    pub provenance: Vec<ProvenanceInfo>,
+
+    /// Quality and confidence metrics
     #[serde(default)]
-    pub policy: Option<serde_json::Value>,
-    #[serde(default = "default_confidence")]
-    pub confidence: f32,
-    #[serde(default)]
+    pub metrics: Option<ArtifactMetrics>,
+
+    /// Time-to-live in seconds
+    #[serde(default, alias = "ttl_sec")]
     pub ttl_seconds: Option<u64>,
-    pub etag: String,
+
+    /// Hash/ETag for versioning
+    pub hash: String,
+
+    /// Additional metadata
     #[serde(default)]
     pub metadata: Option<serde_json::Value>,
+}
+
+impl Default for ArtifactMetrics {
+    fn default() -> Self {
+        Self {
+            score: 1.0,
+            generated_at: None,
+            extra: serde_json::Value::Object(serde_json::Map::new()),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -38,7 +99,7 @@ pub enum StoreStatus {
 pub struct StoreResponse {
     pub key: String,
     pub status: StoreStatus,
-    pub etag: String,
+    pub hash: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expires_at: Option<DateTime<Utc>>,
 }
@@ -56,11 +117,18 @@ pub struct LookupResponse {
 #[derive(Debug, Deserialize)]
 pub struct LookupQuery {
     pub key: String,
+    #[serde(default)]
+    pub tenant: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct PurgeRequest {
+    #[serde(default)]
     pub keys: Vec<String>,
+    #[serde(default)]
+    pub tenant: Option<String>,
+    #[serde(default)]
+    pub provenance_hash: Option<String>,
 }
 
 #[derive(Debug, Serialize)]

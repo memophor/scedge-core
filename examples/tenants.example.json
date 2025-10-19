@@ -1,0 +1,28 @@
+{
+  "tenants": [
+    {
+      "tenant_id": "acme",
+      "api_key": "acme_dev_key_12345",
+      "allowed_regions": ["us-east-1", "us-west-2"],
+      "max_ttl_seconds": 604800,
+      "require_phi_compliance": false,
+      "require_pii_compliance": true
+    },
+    {
+      "tenant_id": "healthcare_corp",
+      "api_key": "healthcare_secure_key_67890",
+      "allowed_regions": ["us-east-1"],
+      "max_ttl_seconds": 86400,
+      "require_phi_compliance": true,
+      "require_pii_compliance": true
+    },
+    {
+      "tenant_id": "demo",
+      "api_key": "demo_public_key",
+      "allowed_regions": [],
+      "max_ttl_seconds": 3600,
+      "require_phi_compliance": false,
+      "require_pii_compliance": false
+    }
+  ]
+}

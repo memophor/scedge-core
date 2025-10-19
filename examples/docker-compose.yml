@@ -1,0 +1,44 @@
+version: '3.8'
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: scedge-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  scedge:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: scedge-core
+    ports:
+      - "8080:8080"
+      - "9090:9090"  # Metrics endpoint
+    environment:
+      SCEDGE_PORT: "8080"
+      SCEDGE_REDIS_URL: "redis://redis:6379"
+      SCEDGE_DEFAULT_TTL: "86400"
+      SCEDGE_LOG_LEVEL: "info"
+      SCEDGE_EVENT_BUS_ENABLED: "true"
+      SCEDGE_METRICS_ENABLED: "true"
+      # SCEDGE_TENANT_KEYS_PATH: "/app/tenants.json"
+      # SCEDGE_JWT_SECRET: "your-secret-key-change-in-production"
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./tenants.example.json:/app/tenants.json:ro
+    restart: unless-stopped
+
+volumes:
+  redis-data:
+    driver: local

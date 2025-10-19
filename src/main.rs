@@ -1,143 +1,151 @@
+mod api;
+mod cache;
 mod config;
 mod error;
+mod events;
+mod metrics;
 mod model;
-mod state;
+mod policy;
 
-use std::time::Duration;
-
-use axum::extract::{Query, State};
 use axum::routing::{get, post};
-use axum::{Json, Router};
-use config::AppConfig;
-use error::AppError;
-use model::{LookupQuery, LookupResponse, PurgeRequest, PurgeResponse, StoreRequest, StoreResponse, StoreStatus};
-use state::{CacheState, CacheWriteOutcome};
+use axum::Router;
+use tower_http::trace::TraceLayer;
 use tracing_subscriber::EnvFilter;
+
+use crate::api::{handle_lookup, handle_purge, handle_store, health, metrics as metrics_handler, AppState};
+use crate::cache::{Cache, RedisCache};
+use crate::config::AppConfig;
+use crate::events::{EventBus, EventBusConfig};
+use crate::metrics::Metrics;
+use crate::policy::PolicyEngine;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    // Load environment variables from .env file if it exists
     dotenvy::dotenv().ok();
+
+    // Initialize tracing/logging
     init_tracing();
 
-    let cfg = AppConfig::from_env()?;
-    let state = CacheState::new(cfg.default_ttl());
+    tracing::info!("Starting Scedge Core v{}", env!("CARGO_PKG_VERSION"));
 
-    spawn_janitor(state.clone(), cfg.janitor_interval());
+    // Load configuration
+    let config = AppConfig::from_env()?;
+    tracing::info!(
+        redis_url = %config.redis_url,
+        listen_addr = %config.listen_addr,
+        "Configuration loaded"
+    );
 
+    // Initialize Redis cache
+    tracing::info!("Connecting to Redis...");
+    let redis_cache = RedisCache::new(&config.redis_url)?;
+    redis_cache.ping().await?;
+    tracing::info!("Redis connection established");
+
+    let cache = Cache::new(redis_cache);
+
+    // Initialize metrics
+    let metrics = if config.metrics_enabled {
+        tracing::info!("Metrics enabled");
+        Metrics::new()?
+    } else {
+        tracing::info!("Metrics disabled");
+        Metrics::default()
+    };
+
+    // Initialize policy engine
+    let policy_engine = PolicyEngine::new(config.jwt_secret.clone());
+
+    // Load tenant configurations
+    match config.load_tenants() {
+        Ok(tenants) => {
+            if tenants.is_empty() {
+                tracing::warn!("No tenant configurations loaded - API key validation will fail");
+            } else {
+                tracing::info!(count = tenants.len(), "Loading tenant configurations");
+                for tenant in tenants {
+                    tracing::debug!(tenant_id = %tenant.tenant_id, "Loaded tenant");
+                    policy_engine.add_tenant(tenant).await;
+                }
+            }
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "Failed to load tenant configurations - continuing without tenant auth");
+        }
+    }
+
+    // Initialize event bus
+    if config.event_bus_enabled {
+        tracing::info!(channel = %config.event_bus_channel, "Starting event bus");
+        let event_config = EventBusConfig {
+            redis_url: config.redis_url.clone(),
+            channel: config.event_bus_channel.clone(),
+        };
+        let mut event_bus = EventBus::new(event_config, cache.clone());
+        event_bus.start().await?;
+    } else {
+        tracing::info!("Event bus disabled");
+    }
+
+    // Create application state
+    let state = AppState {
+        cache: cache.clone(),
+        metrics: metrics.clone(),
+        policy: policy_engine,
+        default_ttl_seconds: config.default_ttl().as_secs(),
+    };
+
+    // Build router
     let app = Router::new()
+        .route("/healthz", get(health))
+        .route("/health", get(health))
+        .route("/metrics", get(metrics_handler))
         .route("/lookup", get(handle_lookup))
         .route("/store", post(handle_store))
         .route("/purge", post(handle_purge))
-        .with_state(state.clone());
+        .layer(TraceLayer::new_for_http())
+        .with_state(state);
 
-    let listen_addr = cfg.listen_addr();
+    // Start server
+    let listen_addr = config.listen_addr();
     let listener = tokio::net::TcpListener::bind(listen_addr).await?;
 
-    tracing::info!(%listen_addr, "starting scedge edge cache");
+    tracing::info!(%listen_addr, "Scedge Core is running");
+    tracing::info!("Endpoints:");
+    tracing::info!("  GET  /healthz        - Health check");
+    tracing::info!("  GET  /metrics        - Prometheus metrics");
+    tracing::info!("  GET  /lookup?key=... - Lookup artifact");
+    tracing::info!("  POST /store          - Store artifact");
+    tracing::info!("  POST /purge          - Purge artifacts");
 
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
         .await?;
 
-    tracing::info!("scedge exited cleanly");
+    tracing::info!("Scedge Core shut down cleanly");
 
     Ok(())
 }
 
-async fn handle_store(
-    State(state): State<CacheState>,
-    Json(request): Json<StoreRequest>,
-) -> Result<Json<StoreResponse>, AppError> {
-    if request.key.trim().is_empty() {
-        return Err(AppError::bad_request("key is required"));
-    }
-
-    if request.artifact.etag.trim().is_empty() {
-        return Err(AppError::bad_request("artifact etag is required"));
-    }
-
-    let StoreRequest { key, artifact } = request;
-    let CacheWriteOutcome { record, created } = state.set(key, artifact).await;
-
-    let response = StoreResponse {
-        key: record.key,
-        status: if created {
-            StoreStatus::Created
-        } else {
-            StoreStatus::Updated
-        },
-        etag: record.artifact.etag.clone(),
-        expires_at: record.expires_at,
-    };
-
-    Ok(Json(response))
-}
-
-async fn handle_lookup(
-    State(state): State<CacheState>,
-    Query(query): Query<LookupQuery>,
-) -> Result<Json<LookupResponse>, AppError> {
-    if query.key.trim().is_empty() {
-        return Err(AppError::bad_request("key query parameter is required"));
-    }
-
-    let Some(record) = state.get(&query.key).await else {
-        return Err(AppError::not_found("cache miss"));
-    };
-
-    let now = chrono::Utc::now();
-    let ttl_remaining = record.ttl_remaining_seconds(now);
-
-    let response = LookupResponse {
-        key: record.key,
-        artifact: record.artifact,
-        expires_at: record.expires_at,
-        ttl_remaining_seconds: ttl_remaining,
-    };
-
-    Ok(Json(response))
-}
-
-async fn handle_purge(
-    State(state): State<CacheState>,
-    Json(request): Json<PurgeRequest>,
-) -> Result<Json<PurgeResponse>, AppError> {
-    if request.keys.is_empty() {
-        return Err(AppError::bad_request("keys cannot be empty"));
-    }
-
-    let purged = state.purge(&request.keys).await;
-
-    Ok(Json(PurgeResponse { purged }))
-}
-
 fn init_tracing() {
-    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
-    tracing_subscriber::fmt().with_env_filter(filter).init();
-}
+    let filter = EnvFilter::try_from_default_env()
+        .or_else(|_| EnvFilter::try_new("info"))
+        .unwrap();
 
-fn spawn_janitor(state: CacheState, interval: Duration) {
-    if interval.is_zero() {
-        tracing::warn!("janitor interval disabled; expired entries will linger");
-        return;
-    }
-
-    tokio::spawn(async move {
-        let mut ticker = tokio::time::interval(interval);
-        loop {
-            ticker.tick().await;
-            let purged = state.purge_expired().await;
-            if purged > 0 {
-                tracing::debug!(purged, "purged expired artifacts");
-            }
-        }
-    });
+    tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_target(true)
+        .with_thread_ids(false)
+        .with_file(true)
+        .with_line_number(true)
+        .init();
 }
 
 async fn shutdown_signal() {
     let ctrl_c = async {
         if let Err(error) = tokio::signal::ctrl_c().await {
-            tracing::warn!(%error, "failed to install Ctrl+C handler");
+            tracing::warn!(%error, "Failed to install Ctrl+C handler");
         }
     };
 
@@ -145,10 +153,11 @@ async fn shutdown_signal() {
     let terminate = async {
         use tokio::signal::unix::{signal, SignalKind};
         match signal(SignalKind::terminate()) {
-            Ok(mut term_signal) => term_signal.recv().await,
+            Ok(mut term_signal) => {
+                term_signal.recv().await;
+            }
             Err(error) => {
-                tracing::warn!(%error, "failed to install SIGTERM handler");
-                None
+                tracing::warn!(%error, "Failed to install SIGTERM handler");
             }
         }
     };
@@ -157,9 +166,13 @@ async fn shutdown_signal() {
     let terminate = std::future::pending::<()>();
 
     tokio::select! {
-        _ = ctrl_c => {},
-        _ = terminate => {},
+        _ = ctrl_c => {
+            tracing::info!("Received Ctrl+C signal");
+        },
+        _ = terminate => {
+            tracing::info!("Received SIGTERM signal");
+        },
     }
 
-    tracing::info!("shutdown signal received");
+    tracing::info!("Initiating graceful shutdown...");
 }
