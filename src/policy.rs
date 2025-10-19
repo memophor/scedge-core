@@ -1,3 +1,11 @@
+// Copyright 2025 Memophor Labs
+// SPDX-License-Identifier: Apache-2.0
+
+//! Policy enforcement and authentication for multi-tenant access control.
+//!
+//! Provides JWT validation, API key authentication, and tenant-level policy enforcement
+//! including TTL limits, regional restrictions, and compliance requirements (PHI/PII).
+
 use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

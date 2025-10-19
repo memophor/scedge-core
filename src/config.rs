@@ -1,3 +1,15 @@
+// Copyright 2025 Memophor Labs
+// SPDX-License-Identifier: Apache-2.0
+
+//! Configuration management for Scedge Core.
+//!
+//! Loads configuration from environment variables and files. Supports:
+//! - Server binding configuration
+//! - Redis connection settings
+//! - TTL defaults
+//! - Tenant authentication
+//! - Feature flags (metrics, event bus)
+
 use std::env;
 use std::fs;
 use std::net::SocketAddr;

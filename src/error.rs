@@ -1,3 +1,8 @@
+// Copyright 2025 Memophor Labs
+// SPDX-License-Identifier: Apache-2.0
+
+//! Error types and HTTP error responses for Scedge Core.
+
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::Json;

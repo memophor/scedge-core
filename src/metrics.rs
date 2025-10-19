@@ -1,3 +1,10 @@
+// Copyright 2025 Memophor Labs
+// SPDX-License-Identifier: Apache-2.0
+
+//! Prometheus metrics collection for Scedge Core.
+//!
+//! Tracks cache performance, request patterns, and system health.
+
 use prometheus::{
     Counter, Histogram, HistogramOpts, IntCounter, IntGauge, Opts, Registry,
 };

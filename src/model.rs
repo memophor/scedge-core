@@ -1,3 +1,10 @@
+// Copyright 2025 Memophor Labs
+// SPDX-License-Identifier: Apache-2.0
+
+//! Data models and schemas for knowledge artifacts.
+//!
+//! Defines the structure of cached artifacts with policy, provenance, and metrics.
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 

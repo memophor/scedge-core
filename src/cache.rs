@@ -1,3 +1,38 @@
+// Copyright 2025 Memophor Labs
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+//! Cache backend implementations for Scedge Core.
+//!
+//! This module provides a pluggable cache architecture with a trait-based abstraction
+//! layer. The primary implementation uses Redis for production deployments, but the
+//! architecture supports additional backends (SQLite, RocksDB, DynamoDB, etc.).
+//!
+//! # Architecture
+//!
+//! - `CacheBackend` trait: Common interface for all cache implementations
+//! - `RedisCache`: Production-ready Redis backend with connection pooling
+//! - `Cache`: Wrapper providing a unified API
+//!
+//! # Example
+//!
+//! ```no_run
+//! use scedge::cache::{Cache, RedisCache};
+//!
+//! let redis = RedisCache::new("redis://localhost:6379")?;
+//! let cache = Cache::new(redis);
+//! ```
+
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use redis::AsyncCommands;

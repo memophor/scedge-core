@@ -1,3 +1,14 @@
+// Copyright 2025 Memophor Labs
+// SPDX-License-Identifier: Apache-2.0
+
+//! Event bus integration for graph-aware cache invalidation.
+//!
+//! Listens to Redis Pub/Sub events from SynaGraph for intelligent cache invalidation:
+//! - SUPERSEDED_BY: Invalidate artifacts with old provenance hashes
+//! - REVOKE_CAPSULE: Remove all artifacts from a revoked knowledge capsule
+//! - INVALIDATE_TENANT: Clear all cache entries for a tenant
+//! - UPDATE_TTL: Adjust TTL for matching artifacts
+
 use redis::aio::MultiplexedConnection;
 use redis::AsyncCommands;
 use serde::{Deserialize, Serialize};
