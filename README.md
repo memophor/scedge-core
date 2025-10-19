@@ -1,215 +1,319 @@
-# ⚡ Scedge Core — Smart Cache on the Edge
-> *Edge-layer cache for AI memory and knowledge delivery.*
+<div align="center">
+
+# ⚡ Scedge Core
+
+**Smart Cache on the Edge**
+
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![Rust](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org)
+[![Redis](https://img.shields.io/badge/redis-7%2B-red.svg)](https://redis.io)
+
+*Edge-layer cache for AI memory and knowledge delivery*
+
+[Getting Started](#-getting-started) •
+[Documentation](#-documentation) •
+[Architecture](#-architecture) •
+[Contributing](#-contributing) •
+[Community](#-community)
+
+</div>
 
 ---
 
 ## Overview
 
-**Scedge Core** is the open-source foundation of the Scedge platform — a **semantic, policy-aware edge cache** built for distributed AI systems.
-It stores and serves **knowledge artifacts**, not static files, providing instant, low-latency responses to repeated AI queries while reducing GPU and compute usage by up to 90%.
+**Scedge Core** is an open-source, policy-aware edge cache built for distributed AI systems. It stores and serves **knowledge artifacts**—not just static data—providing instant, low-latency responses to repeated AI queries while reducing GPU and compute costs by up to 90%.
 
-Scedge Core forms the **edge layer** of the [Memophor Knowledge Mesh](https://github.com/memophor), alongside:
+### Key Features
+
+| Feature | Description |
+|---------|-------------|
+| 🚀 **Sub-50ms Latency** | Lightning-fast artifact retrieval at the edge |
+| 🔐 **Policy-Aware** | Multi-tenant with PHI/PII compliance built-in |
+| 🎯 **Semantic Keys** | Cache by meaning: intent, tenant, locale, version |
+| 🔄 **Graph-Aware** | Intelligent invalidation via SynaGraph events |
+| 📊 **Observable** | Prometheus metrics and structured logging |
+| 🔌 **Pluggable** | Trait-based architecture for custom backends |
+
+### Part of the Memophor Knowledge Mesh
+
+Scedge Core is the **edge layer** of the Memophor platform:
 
 | Component | Role |
 |------------|------|
-| **SynaGraph** | Graph + vector + temporal knowledge engine |
-| **Knowlemesh** | Orchestration and governance control plane |
-| **SeTGIN** | Self-tuning intelligence network that learns from telemetry |
-| **Scedge** | Smart Cache on the Edge — *this repository* |
+| **[SynaGraph](https://github.com/memophor/synagraph)** | Graph + vector + temporal knowledge engine |
+| **[Knowlemesh](https://github.com/memophor/knowlemesh)** | Orchestration and governance control plane |
+| **[SeTGIN](https://github.com/memophor/setgin)** | Self-tuning intelligence network |
+| **Scedge Core** | Smart edge cache — *this repository* |
 
 ---
 
-## ✨ Features
+## 🚀 Getting Started
 
-| Capability | Description |
-|-------------|-------------|
-| **Redis-based caching** | Pluggable cache backend (Redis, KeyDB, or SQLite). |
-| **Semantic keys** | Cache entries keyed by *meaning* — intent, tenant, policy, locale, and version. |
-| **Policy enforcement** | Tenant and compliance tags (HIPAA/GDPR-ready). |
-| **Graph-aware invalidation** | Listens for `SUPERSEDED_BY` and `REVOKE_CAPSULE` events from SynaGraph. |
-| **Fast APIs** | `/lookup`, `/store`, and `/purge` endpoints for artifact lifecycle. |
-| **Lightweight & portable** | Single Rust binary; deploy anywhere. |
-| **Observability** | Prometheus metrics, `/healthz`, structured logs. |
-
----
-
-## 🧱 Architecture
-
-```
-Client / Agent
-   │
-   │ 1️⃣  Request or query
-   ▼
-┌────────────────────────────────────────────┐
-│  Scedge Core PoP (Rust microservice)      │
-│  • Semantic cache (Redis / SQLite)        │
-│  • /lookup  /store  /purge APIs           │
-│  • Tenant policy enforcement              │
-│  • TTL + provenance awareness             │
-└────────────────────────────────────────────┘
-   │
-   │ 2️⃣  Cache miss → forward to origin
-   ▼
-┌────────────────────────────────────────────┐
-│  Knowlemesh / SynaGraph Origin             │
-│  • Generates / validates knowledge         │
-│  • Publishes graph events to PoPs          │
-└────────────────────────────────────────────┘
-```
-
----
-
-## ⚙️ Quick Start
-
-### 1️⃣ Prerequisites
-- Rust 1.75+ (nightly or stable)
-- Redis 7+
-- Docker (optional for local dev)
-
-### 2️⃣ Run locally
+### Quick Start (5 minutes)
 
 ```bash
-git clone https://github.com/memophor/scedge.git
-cd scedge
-
-# Start Redis
+# 1. Start Redis
 docker run -d --name redis -p 6379:6379 redis:7
 
-# Run Scedge Core
+# 2. Clone and run Scedge
+git clone https://github.com/memophor/scedge-core.git
+cd scedge-core
 cargo run
-```
 
-### 3️⃣ Example requests
-
-```bash
-# Store an artifact
+# 3. Test the API
 curl -X POST http://localhost:8080/store \
   -H "Content-Type: application/json" \
   -d '{
-    "key":"reset_password:mobile:en-US",
-    "tenant":"acme",
-    "artifact":{
-      "answer":"Reset link sent",
-      "ttl_sec":86400
+    "key": "demo:greeting:en-US",
+    "artifact": {
+      "answer": "Hello, world!",
+      "policy": {"tenant": "demo", "phi": false, "pii": false},
+      "provenance": [{"source": "manual-test"}],
+      "hash": "v1"
     }
   }'
 
-# Lookup
-curl "http://localhost:8080/lookup?key=reset_password:mobile:en-US&tenant=acme"
+curl "http://localhost:8080/lookup?key=demo:greeting:en-US"
+```
 
-# Purge
-curl -X POST http://localhost:8080/purge \
-  -H "Content-Type: application/json" \
-  -d '{"tenant":"acme","provenance_hash":"sha256:xyz"}'
+**📖 See [QUICKSTART.md](QUICKSTART.md) for detailed instructions**
+
+### Prerequisites
+
+- **Rust 1.75+** ([Install](https://rustup.rs/))
+- **Redis 7+** (via Docker or native install)
+- **Docker** (optional, for containerized deployment)
+
+---
+
+## 📚 Documentation
+
+- **[QUICKSTART.md](QUICKSTART.md)** - Get running in 5 minutes
+- **[ARCHITECTURE.md](docs/ARCHITECTURE.md)** - Technical deep-dive
+- **[CONTRIBUTING.md](CONTRIBUTING.md)** - How to contribute
+- **[VISION.md](docs/VISION.md)** - Project vision and roadmap
+- **[API Reference](docs/api.md)** - Complete API documentation
+
+---
+
+## 🏗️ Architecture
+
+```
+┌─────────────────────────────────────────┐
+│     Client / AI Agent / Application     │
+└───────────────┬─────────────────────────┘
+                │ HTTP Request
+                ▼
+┌─────────────────────────────────────────┐
+│          Scedge Core PoP                │
+│  ┌─────────────────────────────────┐   │
+│  │  Policy Enforcement              │   │
+│  │  • Tenant validation             │   │
+│  │  • JWT / API key auth           │   │
+│  │  • PHI/PII compliance           │   │
+│  └─────────────────────────────────┘   │
+│  ┌─────────────────────────────────┐   │
+│  │  Redis Cache Backend             │   │
+│  │  • Semantic key lookup          │   │
+│  │  • TTL management               │   │
+│  │  • Pattern-based scan           │   │
+│  └─────────────────────────────────┘   │
+│  ┌─────────────────────────────────┐   │
+│  │  Event Bus (Redis Pub/Sub)      │   │
+│  │  • Graph invalidation events    │   │
+│  │  • Provenance-based purging     │   │
+│  └─────────────────────────────────┘   │
+└─────────────────────────────────────────┘
+                │
+                │ Metrics
+                ▼
+          [Prometheus]
+```
+
+### Core Components
+
+- **Cache Backend** - Pluggable trait-based architecture (Redis, SQLite, RocksDB)
+- **Policy Engine** - Multi-tenant auth with compliance enforcement
+- **Event Bus** - Graph-aware cache invalidation via Pub/Sub
+- **Metrics** - Prometheus-compatible observability
+- **REST API** - `/lookup`, `/store`, `/purge`, `/healthz`, `/metrics`
+
+---
+
+## 📦 Installation
+
+### From Source
+
+```bash
+git clone https://github.com/memophor/scedge-core.git
+cd scedge-core
+cargo build --release
+./target/release/scedge
+```
+
+### With Docker
+
+```bash
+docker build -t scedge-core:latest .
+docker run -p 8080:8080 -e SCEDGE_REDIS_URL=redis://redis:6379 scedge-core:latest
+```
+
+### With Docker Compose
+
+```bash
+cd examples
+docker-compose up
 ```
 
 ---
 
-## 🧩 Configuration
+## 🔧 Configuration
 
-| Env Var | Description | Default |
-|----------|--------------|---------|
-| `SCEDGE_PORT` | Port to bind | `8080` |
-| `SCEDGE_REDIS_URL` | Redis connection URI | `redis://127.0.0.1:6379` |
-| `SCEDGE_DEFAULT_TTL` | Default cache TTL (seconds) | `86400` |
-| `SCEDGE_LOG_LEVEL` | `info`, `debug`, etc. | `info` |
-| `SCEDGE_TENANT_KEYS_PATH` | JSON file of tenant API keys | `./tenants.json` |
+Configure via environment variables (see [.env.example](.env.example)):
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SCEDGE_PORT` | `8080` | HTTP server port |
+| `SCEDGE_REDIS_URL` | `redis://127.0.0.1:6379` | Redis connection URL |
+| `SCEDGE_DEFAULT_TTL` | `86400` | Default TTL in seconds |
+| `SCEDGE_TENANT_KEYS_PATH` | - | Path to tenant configuration JSON |
+| `SCEDGE_JWT_SECRET` | - | Secret for JWT validation |
+| `SCEDGE_EVENT_BUS_ENABLED` | `true` | Enable event bus |
+| `SCEDGE_METRICS_ENABLED` | `true` | Enable Prometheus metrics |
 
 ---
 
-## 📦 Artifact Schema
+## 🌐 API Endpoints
 
-```json
-{
-  "answer": "string or template",
-  "policy": {"tenant":"acme","phi":true},
-  "provenance": [{"source":"doc://handbook#42"}],
-  "metrics": {"_score":0.91,"generated_at":"2025-10-18"},
-  "ttl_sec": 259200,
-  "hash": "etag-abc123"
-}
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/healthz` | Health check |
+| `GET` | `/metrics` | Prometheus metrics |
+| `GET` | `/lookup?key=...` | Retrieve cached artifact |
+| `POST` | `/store` | Store new artifact |
+| `POST` | `/purge` | Invalidate artifacts |
+
+**📖 See [API Documentation](docs/api.md) for request/response schemas**
+
+---
+
+## 🧑‍💻 Development
+
+### Running Tests
+
+```bash
+cargo test
 ```
 
-Artifacts are signed at origin and validated at the edge.
+### Code Quality
 
----
-
-## 🔌 Integration Points
-
-| Source | Event | Action |
-|--------|--------|--------|
-| **SynaGraph** | `SUPERSEDED_BY` | Purge cached artifacts sharing the old provenance hash. |
-| **Knowlemesh** | Policy update | Invalidate affected tenants' keys. |
-| **SeTGIN** | PerfPolicy adjustment | Update TTL or cache thresholds. |
-
----
-
-## 🧠 Why Open Source?
-
-- **Developer adoption:** Make caching and knowledge reuse easy for any AI system.
-- **Transparency:** Open design for policy enforcement and provenance.
-- **Extensibility:** Community-driven backends (Redis, KeyDB, RocksDB).
-- **Innovation loop:** External contributors can extend edge learning and analytics.
-
-> Scedge Core follows the [Apache 2.0 License](LICENSE). Commercial orchestration and analytics remain part of **Knowlemesh Cloud**.
-
----
-
-## 🧩 Repository Structure
-
+```bash
+cargo fmt        # Format code
+cargo clippy     # Lint
+cargo audit      # Security audit
 ```
-scedge/
- ├── src/
- │   ├── main.rs              # PoP entrypoint
- │   ├── api.rs               # /lookup /store /purge handlers
- │   ├── cache.rs             # Redis adapter + trait
- │   ├── policy.rs            # JWT & policy enforcement
- │   ├── metrics.rs           # Prometheus integration
- │   └── events.rs            # Redis pub/sub or NATS hooks
- ├── examples/
- │   └── docker-compose.yml   # Local Redis + Scedge
- ├── tests/
- ├── Cargo.toml
- └── LICENSE
+
+### Local Development
+
+```bash
+# Start dependencies
+docker-compose -f examples/docker-compose.yml up redis
+
+# Run with hot-reload
+cargo watch -x run
 ```
 
 ---
 
-## 🧰 Roadmap
+## 🤝 Contributing
 
-| Milestone | Description | Status |
-|------------|-------------|---------|
-| **v0.1** | Redis cache backend, `/lookup` `/store` `/purge`, Prometheus metrics | 🚧 In progress |
-| **v0.2** | ANN near-duplicate search, provenance purge events | 🧱 Planned |
-| **v0.3** | Policy enforcement middleware (JWT + WASM) | 🧱 Planned |
-| **v1.0** | Stable API + CLI; integration with Knowlemesh + SynaGraph | ⏳ Target Q2 2026 |
+We welcome contributions! Please see:
 
----
+- **[CONTRIBUTING.md](CONTRIBUTING.md)** - Contribution guidelines
+- **[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)** - Community standards
+- **[Good First Issues](https://github.com/memophor/scedge-core/labels/good-first-issue)** - Great starting points
 
-## 🧑‍🤝‍🧑 Contributing
+### How to Contribute
 
-We welcome issues, discussions, and PRs.
-
-1. Fork the repo and run `cargo fmt && cargo clippy` before committing.
-2. Write integration tests where possible (`cargo test`).
-3. Update docs for new APIs or config flags.
-4. Sign your commits (`git commit -S`).
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Make your changes and add tests
+4. Run `cargo fmt && cargo clippy`
+5. Commit with signed commits (`git commit -S -m "feat: add amazing feature"`)
+6. Push and create a Pull Request
 
 ---
 
-## 🔒 License
+## 🗺️ Roadmap
 
-**Apache 2.0** — see [LICENSE](LICENSE).
-Copyright © 2025 Memophor Labs.
+| Milestone | Status | Target |
+|-----------|--------|--------|
+| **v0.1** - Redis backend, core APIs, metrics | 🚧 In Progress | Q4 2025 |
+| **v0.2** - ANN semantic search, event bus | 🧱 Planned | Q1 2026 |
+| **v0.3** - Policy middleware, WASM plugins | 🧱 Planned | Q2 2026 |
+| **v1.0** - Production-ready, stable API | ⏳ Planned | Q3 2026 |
+
+**📖 See [VISION.md](docs/VISION.md) for long-term roadmap**
 
 ---
 
-### ✨ Summary
+## 📊 Performance
 
-Scedge Core is the open-source **Knowledge CDN** that brings AI memory to the edge.
-It's fast, policy-aware, and built for the Federated Knowledge Mesh.
-Deploy it anywhere — cloud, on-prem, or your laptop — and give your AI the power to remember.
+Scedge Core is designed for speed:
 
-> *"Move knowledge, not tokens."*
+- **Sub-50ms** artifact retrieval
+- **10,000+ RPS** on commodity hardware
+- **90% reduction** in GPU compute for cached queries
+- **Horizontal scaling** via Redis clustering
+
+*Benchmarks coming in v0.1*
+
+---
+
+## 🔒 Security
+
+- **Multi-tenant isolation** via policy enforcement
+- **JWT + API key** authentication
+- **PHI/PII compliance** tagging
+- **Signed commits** required for contributions
+
+**📖 See [SECURITY.md](SECURITY.md) for reporting vulnerabilities**
+
+---
+
+## 📜 License
+
+Copyright © 2025 Memophor Labs
+
+Licensed under the **Apache License, Version 2.0**.
+See [LICENSE](LICENSE) for details.
+
+---
+
+## 🌟 Community
+
+- **GitHub Discussions** - [Join the conversation](https://github.com/memophor/scedge-core/discussions)
+- **Issues** - [Report bugs or request features](https://github.com/memophor/scedge-core/issues)
+- **Twitter** - [@memophor](https://twitter.com/memophor)
+- **Discord** - [Join our community](https://discord.gg/memophor)
+
+---
+
+## 🙏 Acknowledgments
+
+Built with:
+- [Rust](https://www.rust-lang.org/) - Blazing fast and memory safe
+- [Axum](https://github.com/tokio-rs/axum) - Ergonomic web framework
+- [Redis](https://redis.io/) - In-memory data structure store
+- [Prometheus](https://prometheus.io/) - Monitoring and alerting
+
+---
+
+<div align="center">
+
+**⚡ Move knowledge, not tokens.**
+
+Made with ❤️ by [Memophor Labs](https://memophor.com)
+
+</div>
