@@ -143,7 +143,7 @@ pub struct PurgeResponse {
     pub purged: usize,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CachedArtifact {
     pub key: String,
     pub artifact: ArtifactPayload,

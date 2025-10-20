@@ -59,10 +59,14 @@ docker run -d --name redis -p 6379:6379 redis:7
 # 2. Clone and run Scedge
 git clone https://github.com/memophor/scedge-core.git
 cd scedge-core
+cp .env.example .env  # Configure port and settings
 cargo run
 
-# 3. Test the API
-curl -X POST http://localhost:8080/store \
+# 3. Open the Testing Dashboard
+open http://localhost:8090  # Opens interactive web UI
+
+# OR test via curl
+curl -X POST http://localhost:8090/store \
   -H "Content-Type: application/json" \
   -d '{
     "key": "demo:greeting:en-US",
@@ -74,9 +78,10 @@ curl -X POST http://localhost:8080/store \
     }
   }'
 
-curl "http://localhost:8080/lookup?key=demo:greeting:en-US"
+curl "http://localhost:8090/lookup?key=demo:greeting:en-US"
 ```
 
+**🎨 Web Dashboard** - Navigate to `http://localhost:8090` for an interactive testing interface
 **📖 See [QUICKSTART.md](QUICKSTART.md) for detailed instructions**
 
 ### Prerequisites
@@ -188,6 +193,7 @@ Configure via environment variables (see [.env.example](.env.example)):
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
+| `GET` | `/` | Interactive testing dashboard |
 | `GET` | `/healthz` | Health check |
 | `GET` | `/metrics` | Prometheus metrics |
 | `GET` | `/lookup?key=...` | Retrieve cached artifact |
@@ -195,6 +201,44 @@ Configure via environment variables (see [.env.example](.env.example)):
 | `POST` | `/purge` | Invalidate artifacts |
 
 **📖 See [API Documentation](docs/api.md) for request/response schemas**
+
+---
+
+## 🎨 Testing Dashboard
+
+Scedge Core includes a powerful web-based testing dashboard for easy exploration and debugging:
+
+### Features
+
+- **🌓 Dark Mode** - Toggle between light and dark themes
+- **🔍 Advanced Search** - Filter cards, search keys and responses
+- **📊 Real-time Metrics** - Live cache hit/miss rates and performance stats
+- **⏱️ Performance Timing** - See how long each operation takes
+- **📝 Request History** - Track and replay past requests
+- **💾 Export Functionality** - Copy responses to clipboard or export history
+- **🔄 Bulk Operations** - Store or lookup multiple artifacts at once
+- **📦 Example Templates** - Quick-load common use cases:
+  - Simple greetings
+  - Complex JSON data
+  - PHI/PII protected data
+  - Multi-language content
+  - Versioned artifacts
+  - JSON API responses
+
+### Dashboard Usage
+
+```bash
+# Start Scedge
+cargo run
+
+# Open browser
+open http://localhost:8090
+```
+
+The dashboard provides categorized views:
+- **Monitoring** - System health and metrics
+- **Operations** - Store, lookup, purge, and bulk operations
+- **History** - Request history with export capabilities
 
 ---
 
@@ -247,12 +291,23 @@ We welcome contributions! Please see:
 
 ## 🗺️ Roadmap
 
-| Milestone | Status | Target |
-|-----------|--------|--------|
-| **v0.1** - Redis backend, core APIs, metrics | 🚧 In Progress | Q4 2025 |
-| **v0.2** - ANN semantic search, event bus | 🧱 Planned | Q1 2026 |
-| **v0.3** - Policy middleware, WASM plugins | 🧱 Planned | Q2 2026 |
-| **v1.0** - Production-ready, stable API | ⏳ Planned | Q3 2026 |
+| Milestone | Status | Target | Features |
+|-----------|--------|--------|----------|
+| **v0.1 (Foundation)** | ✅ Complete | Q4 2025 | Redis backend, core APIs, metrics, testing dashboard |
+| **v0.2 (Enhancement)** | 🧱 Planned | Q1 2026 | ANN semantic search, full event bus, pattern-based purging |
+| **v0.3 (Security)** | 🧱 Planned | Q2 2026 | Policy middleware, WASM plugins, JWT auth |
+| **v1.0 (Production)** | ⏳ Planned | Q3 2026 | Production-ready, stable API, horizontal scaling |
+
+### v0.1 Completed Features
+- ✅ Redis backend with connection pooling
+- ✅ REST API (`/store`, `/lookup`, `/purge`, `/healthz`, `/metrics`)
+- ✅ Prometheus metrics integration
+- ✅ Event bus scaffold (Redis Pub/Sub)
+- ✅ Interactive web testing dashboard
+- ✅ Dark mode support
+- ✅ Request history and export
+- ✅ Bulk operations
+- ✅ Performance timing
 
 **📖 See [VISION.md](docs/VISION.md) for long-term roadmap**
 

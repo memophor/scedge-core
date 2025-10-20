@@ -16,7 +16,7 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "syn
 # Web framework
 axum = { version = "0.7", features = ["json", "macros"] }
 tower = "0.4"
-tower-http = { version = "0.5", features = ["trace", "cors"] }
+tower-http = { version = "0.5", features = ["trace", "cors", "fs"] }
 
 # Redis client
 redis = { version = "0.25", features = ["tokio-comp", "connection-manager", "aio"] }
@@ -51,6 +51,9 @@ dotenvy = "0.15"
 
 # Async traits
 async-trait = "0.1"
+
+# Async utilities
+futures-util = "0.3"
 
 [dev-dependencies]
 # Testing utilities

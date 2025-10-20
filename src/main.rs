@@ -48,6 +48,7 @@ mod policy;
 
 use axum::routing::{get, post};
 use axum::Router;
+use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::EnvFilter;
 
@@ -143,6 +144,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/lookup", get(handle_lookup))
         .route("/store", post(handle_store))
         .route("/purge", post(handle_purge))
+        .nest_service("/", ServeDir::new("static"))
         .layer(TraceLayer::new_for_http())
         .with_state(state);
 

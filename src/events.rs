@@ -9,10 +9,10 @@
 //! - INVALIDATE_TENANT: Clear all cache entries for a tenant
 //! - UPDATE_TTL: Adjust TTL for matching artifacts
 
-use redis::aio::MultiplexedConnection;
+use futures_util::stream::StreamExt;
+use redis::aio::Connection;
 use redis::AsyncCommands;
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 use tokio::sync::mpsc;
 
 use crate::cache::Cache;
@@ -82,7 +82,7 @@ impl EventBus {
         let client = redis::Client::open(self.config.redis_url.as_str())
             .map_err(|e| AppError::Internal(anyhow::anyhow!("Failed to create Redis client: {}", e)))?;
 
-        let conn = client.get_multiplexed_async_connection().await
+        let conn = client.get_async_connection().await
             .map_err(|e| AppError::Internal(anyhow::anyhow!("Failed to connect to Redis: {}", e)))?;
 
         let (shutdown_tx, mut shutdown_rx) = mpsc::channel::<()>(1);
@@ -102,7 +102,7 @@ impl EventBus {
     }
 
     async fn listen_loop(
-        mut conn: MultiplexedConnection,
+        conn: Connection,
         channel: String,
         cache: Cache,
         shutdown_rx: &mut mpsc::Receiver<()>,
@@ -111,9 +111,11 @@ impl EventBus {
         pubsub.subscribe(&channel).await
             .map_err(|e| AppError::Internal(anyhow::anyhow!("Failed to subscribe: {}", e)))?;
 
+        let mut msg_stream = pubsub.on_message();
+
         loop {
             tokio::select! {
-                msg = pubsub.on_message().next() => {
+                msg = msg_stream.next() => {
                     if let Some(msg) = msg {
                         let payload: String = msg.get_payload()
                             .map_err(|e| AppError::Internal(anyhow::anyhow!("Failed to get payload: {}", e)))?;
