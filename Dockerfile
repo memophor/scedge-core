@@ -11,9 +11,11 @@ RUN apt-get update && apt-get install -y \
 
 # Copy manifests
 COPY Cargo.toml ./
+COPY Cargo.lock ./
 
 # Copy source code
 COPY src ./src
+COPY static ./static
 
 # Build release binary
 RUN cargo build --release

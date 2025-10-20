@@ -72,7 +72,7 @@ impl EventBus {
     }
 
     /// Start listening for events
-    pub async fn start(&mut self) -> Result<(), AppError> {
+    pub async fn start(&mut self) -> Result<mpsc::Sender<()>, AppError> {
         let client = async_nats::connect(self.config.url.as_str())
             .await
             .map_err(|e| AppError::Internal(anyhow::anyhow!("Failed to connect to NATS: {}", e)))?;
@@ -83,7 +83,7 @@ impl EventBus {
             .map_err(|e| AppError::Internal(anyhow::anyhow!("Failed to subscribe: {}", e)))?;
 
         let (shutdown_tx, shutdown_rx) = mpsc::channel::<()>(1);
-        self.shutdown_tx = Some(shutdown_tx);
+        self.shutdown_tx = Some(shutdown_tx.clone());
 
         let cache = self.cache.clone();
         let subject = self.config.channel.clone();
@@ -95,7 +95,7 @@ impl EventBus {
         });
 
         tracing::info!(subject = %self.config.channel, "Event bus started");
-        Ok(())
+        Ok(shutdown_tx)
     }
 
     async fn listen_loop(

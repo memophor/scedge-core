@@ -25,7 +25,7 @@ redis = { version = "0.25", features = ["tokio-comp", "connection-manager", "aio
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 reqwest = { version = "0.11", features = ["json"] }
-async-nats = "0.37"
+async-nats = "0.34"
 
 # Date/Time
 chrono = { version = "0.4", features = ["serde"] }

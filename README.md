@@ -322,6 +322,14 @@ We welcome contributions! Please see:
 
 ---
 
+## 🔐 Security TODO
+
+- Document and enable tenant API-key/JWT enforcement for `/store`, `/lookup`, and `/purge` requests.
+- Require credentials or mTLS for `SCEDGE_EVENT_BUS_URL` before exposing the NATS subject outside trusted networks.
+- Describe recommended TLS termination / ingress configuration for production deployments.
+
+---
+
 ## 📊 Performance
 
 Scedge Core is designed for speed:

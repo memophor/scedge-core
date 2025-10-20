@@ -47,9 +47,9 @@ mod model;
 mod policy;
 mod upstream;
 
+use axum::response::Html;
 use axum::routing::{get, post};
 use axum::Router;
-use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::EnvFilter;
 
@@ -136,17 +136,18 @@ async fn main() -> anyhow::Result<()> {
     };
 
     // Initialize event bus
-    if config.event_bus_enabled {
+    let _event_bus_guard = if config.event_bus_enabled {
         tracing::info!(channel = %config.event_bus_channel, "Starting event bus");
         let event_config = EventBusConfig {
             url: config.event_bus_url.clone(),
             channel: config.event_bus_channel.clone(),
         };
         let mut event_bus = EventBus::new(event_config, cache.clone());
-        event_bus.start().await?;
+        Some(event_bus.start().await?)
     } else {
         tracing::info!("Event bus disabled");
-    }
+        None
+    };
 
     // Create application state
     let state = AppState {
@@ -165,7 +166,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/lookup", get(handle_lookup))
         .route("/store", post(handle_store))
         .route("/purge", post(handle_purge))
-        .nest_service("/", ServeDir::new("static"))
+        .route("/", get(index))
         .layer(TraceLayer::new_for_http())
         .with_state(state);
 
@@ -188,6 +189,10 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("Scedge Core shut down cleanly");
 
     Ok(())
+}
+
+async fn index() -> Html<&'static str> {
+    Html(include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/static/index.html")))
 }
 
 fn init_tracing() {
