@@ -24,6 +24,8 @@ redis = { version = "0.25", features = ["tokio-comp", "connection-manager", "aio
 # Serialization
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+reqwest = { version = "0.11", features = ["json"] }
+async-nats = "0.37"
 
 # Date/Time
 chrono = { version = "0.4", features = ["serde"] }
@@ -59,7 +61,6 @@ futures-util = "0.3"
 # Testing utilities
 tokio-test = "0.4"
 mockall = "0.12"
-reqwest = { version = "0.11", features = ["json"] }
 
 [profile.release]
 opt-level = 3

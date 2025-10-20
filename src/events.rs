@@ -9,9 +9,8 @@
 //! - INVALIDATE_TENANT: Clear all cache entries for a tenant
 //! - UPDATE_TTL: Adjust TTL for matching artifacts
 
-use futures_util::stream::StreamExt;
-use redis::aio::Connection;
-use redis::AsyncCommands;
+use async_nats::{Client, Subscriber};
+use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 
@@ -29,14 +28,9 @@ pub enum GraphEvent {
         tenant: String,
     },
     /// Revoke/delete a capsule and all its artifacts
-    RevokeCapsule {
-        capsule_id: String,
-        tenant: String,
-    },
+    RevokeCapsule { capsule_id: String, tenant: String },
     /// Invalidate all artifacts for a tenant
-    InvalidateTenant {
-        tenant: String,
-    },
+    InvalidateTenant { tenant: String },
     /// Update TTL for artifacts matching a pattern
     UpdateTtl {
         pattern: String,
@@ -48,15 +42,15 @@ pub enum GraphEvent {
 /// Event bus configuration
 #[derive(Clone)]
 pub struct EventBusConfig {
-    pub redis_url: String,
+    pub url: String,
     pub channel: String,
 }
 
 impl Default for EventBusConfig {
     fn default() -> Self {
         Self {
-            redis_url: "redis://127.0.0.1:6379".to_string(),
-            channel: "scedge:events".to_string(),
+            url: "nats://127.0.0.1:4222".to_string(),
+            channel: "synagraph.cache".to_string(),
         }
     }
 }
@@ -79,49 +73,60 @@ impl EventBus {
 
     /// Start listening for events
     pub async fn start(&mut self) -> Result<(), AppError> {
-        let client = redis::Client::open(self.config.redis_url.as_str())
-            .map_err(|e| AppError::Internal(anyhow::anyhow!("Failed to create Redis client: {}", e)))?;
+        let client = async_nats::connect(self.config.url.as_str())
+            .await
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("Failed to connect to NATS: {}", e)))?;
 
-        let conn = client.get_async_connection().await
-            .map_err(|e| AppError::Internal(anyhow::anyhow!("Failed to connect to Redis: {}", e)))?;
+        let subscriber = client
+            .subscribe(self.config.channel.clone())
+            .await
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("Failed to subscribe: {}", e)))?;
 
-        let (shutdown_tx, mut shutdown_rx) = mpsc::channel::<()>(1);
+        let (shutdown_tx, shutdown_rx) = mpsc::channel::<()>(1);
         self.shutdown_tx = Some(shutdown_tx);
 
         let cache = self.cache.clone();
-        let channel = self.config.channel.clone();
+        let subject = self.config.channel.clone();
 
         tokio::spawn(async move {
-            if let Err(e) = Self::listen_loop(conn, channel, cache, &mut shutdown_rx).await {
-                tracing::error!(error = %e, "Event bus listener error");
+            if let Err(e) = Self::listen_loop(client, subscriber, cache, shutdown_rx).await {
+                tracing::error!(error = %e, subject = %subject, "Event bus listener error");
             }
         });
 
-        tracing::info!(channel = %self.config.channel, "Event bus started");
+        tracing::info!(subject = %self.config.channel, "Event bus started");
         Ok(())
     }
 
     async fn listen_loop(
-        conn: Connection,
-        channel: String,
+        client: Client,
+        mut subscriber: Subscriber,
         cache: Cache,
-        shutdown_rx: &mut mpsc::Receiver<()>,
+        mut shutdown_rx: mpsc::Receiver<()>,
     ) -> Result<(), AppError> {
-        let mut pubsub = conn.into_pubsub();
-        pubsub.subscribe(&channel).await
-            .map_err(|e| AppError::Internal(anyhow::anyhow!("Failed to subscribe: {}", e)))?;
-
-        let mut msg_stream = pubsub.on_message();
+        let _client_guard = client;
 
         loop {
             tokio::select! {
-                msg = msg_stream.next() => {
-                    if let Some(msg) = msg {
-                        let payload: String = msg.get_payload()
-                            .map_err(|e| AppError::Internal(anyhow::anyhow!("Failed to get payload: {}", e)))?;
+                maybe_msg = subscriber.next() => {
+                    match maybe_msg {
+                        Some(msg) => {
+                            let payload_bytes = msg.payload;
+                            let payload = match std::str::from_utf8(&payload_bytes) {
+                                Ok(text) => text,
+                                Err(error) => {
+                                    tracing::error!(%error, "Received non-UTF8 event payload");
+                                    continue;
+                                }
+                            };
 
-                        if let Err(e) = Self::handle_event(&payload, &cache).await {
-                            tracing::error!(error = %e, payload, "Failed to handle event");
+                            if let Err(err) = Self::handle_event(payload, &cache).await {
+                                tracing::error!(error = %err, payload, "Failed to handle event");
+                            }
+                        }
+                        None => {
+                            tracing::warn!("Event bus subscription closed");
+                            break;
                         }
                     }
                 }
@@ -140,13 +145,12 @@ impl EventBus {
             .map_err(|e| AppError::Internal(anyhow::anyhow!("Failed to parse event: {}", e)))?;
 
         match event {
-            GraphEvent::SupersededBy { old_hash, new_hash, tenant } => {
-                tracing::info!(
-                    old_hash,
-                    new_hash,
-                    tenant,
-                    "Handling SUPERSEDED_BY event"
-                );
+            GraphEvent::SupersededBy {
+                old_hash,
+                new_hash,
+                tenant,
+            } => {
+                tracing::info!(old_hash, new_hash, tenant, "Handling SUPERSEDED_BY event");
 
                 // Find all artifacts with the old hash and purge them
                 let pattern = format!("{}:*", tenant);
@@ -156,7 +160,10 @@ impl EventBus {
                 for key in keys {
                     if let Ok(Some(artifact)) = cache.get(&key).await {
                         // Check if any provenance hash matches
-                        let has_old_hash = artifact.artifact.provenance.iter()
+                        let has_old_hash = artifact
+                            .artifact
+                            .provenance
+                            .iter()
                             .any(|p| p.hash.as_deref() == Some(&old_hash));
 
                         if has_old_hash || artifact.artifact.hash == old_hash {
@@ -180,7 +187,10 @@ impl EventBus {
                 for key in keys {
                     if let Ok(Some(artifact)) = cache.get(&key).await {
                         // Check if any provenance source contains the capsule_id
-                        let has_capsule = artifact.artifact.provenance.iter()
+                        let has_capsule = artifact
+                            .artifact
+                            .provenance
+                            .iter()
                             .any(|p| p.source.contains(&capsule_id));
 
                         if has_capsule {
@@ -204,7 +214,11 @@ impl EventBus {
                 tracing::info!(purged, "Purged all artifacts for tenant");
             }
 
-            GraphEvent::UpdateTtl { pattern, tenant, new_ttl_seconds } => {
+            GraphEvent::UpdateTtl {
+                pattern,
+                tenant,
+                new_ttl_seconds,
+            } => {
                 tracing::info!(
                     pattern,
                     tenant,
@@ -230,18 +244,29 @@ impl EventBus {
 }
 
 /// Publish an event to the event bus (for testing or internal use)
-pub async fn publish_event(redis_url: &str, channel: &str, event: &GraphEvent) -> Result<(), AppError> {
-    let client = redis::Client::open(redis_url)
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("Failed to create Redis client: {}", e)))?;
-
-    let mut conn = client.get_multiplexed_async_connection().await
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("Failed to connect to Redis: {}", e)))?;
+pub async fn publish_event(
+    bus_url: &str,
+    channel: &str,
+    event: &GraphEvent,
+) -> Result<(), AppError> {
+    let client = async_nats::connect(bus_url)
+        .await
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("Failed to connect to NATS: {}", e)))?;
 
     let payload = serde_json::to_string(event)
         .map_err(|e| AppError::Internal(anyhow::anyhow!("Failed to serialize event: {}", e)))?;
 
-    conn.publish(channel, payload).await
+    let subject = channel.to_string();
+
+    client
+        .publish(subject, payload.into_bytes().into())
+        .await
         .map_err(|e| AppError::Internal(anyhow::anyhow!("Failed to publish event: {}", e)))?;
+
+    client
+        .flush()
+        .await
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("Failed to flush NATS client: {}", e)))?;
 
     Ok(())
 }

@@ -30,12 +30,20 @@ pub struct AppConfig {
     pub jwt_secret: Option<String>,
     pub event_bus_enabled: bool,
     pub event_bus_channel: String,
+    pub event_bus_url: String,
     pub metrics_enabled: bool,
+    pub upstream: Option<UpstreamConfig>,
 }
 
 #[derive(Debug, Deserialize)]
 struct TenantsFile {
     tenants: Vec<TenantConfig>,
+}
+
+#[derive(Debug, Clone)]
+pub struct UpstreamConfig {
+    pub base_url: String,
+    pub timeout: Duration,
 }
 
 impl AppConfig {
@@ -48,12 +56,10 @@ impl AppConfig {
 
         let default_ttl = parse_duration("SCEDGE_DEFAULT_TTL", 86400)?;
 
-        let redis_url = env::var("SCEDGE_REDIS_URL")
-            .unwrap_or_else(|_| "redis://127.0.0.1:6379".to_string());
+        let redis_url =
+            env::var("SCEDGE_REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379".to_string());
 
-        let tenant_keys_path = env::var("SCEDGE_TENANT_KEYS_PATH")
-            .ok()
-            .map(PathBuf::from);
+        let tenant_keys_path = env::var("SCEDGE_TENANT_KEYS_PATH").ok().map(PathBuf::from);
 
         let jwt_secret = env::var("SCEDGE_JWT_SECRET").ok();
 
@@ -62,13 +68,27 @@ impl AppConfig {
             .parse()
             .unwrap_or(true);
 
-        let event_bus_channel = env::var("SCEDGE_EVENT_BUS_CHANNEL")
-            .unwrap_or_else(|_| "scedge:events".to_string());
+        let event_bus_channel =
+            env::var("SCEDGE_EVENT_BUS_CHANNEL").unwrap_or_else(|_| "synagraph.cache".to_string());
+
+        let event_bus_url = env::var("SCEDGE_EVENT_BUS_URL")
+            .unwrap_or_else(|_| "nats://127.0.0.1:4222".to_string());
 
         let metrics_enabled = env::var("SCEDGE_METRICS_ENABLED")
             .unwrap_or_else(|_| "true".to_string())
             .parse()
             .unwrap_or(true);
+
+        let upstream = match env::var("SCEDGE_UPSTREAM_URL") {
+            Ok(url) if !url.trim().is_empty() => {
+                let timeout = parse_duration("SCEDGE_UPSTREAM_TIMEOUT_SECS", 5)?;
+                Some(UpstreamConfig {
+                    base_url: url,
+                    timeout,
+                })
+            }
+            _ => None,
+        };
 
         Ok(Self {
             listen_addr,
@@ -78,7 +98,9 @@ impl AppConfig {
             jwt_secret,
             event_bus_enabled,
             event_bus_channel,
+            event_bus_url,
             metrics_enabled,
+            upstream,
         })
     }
 

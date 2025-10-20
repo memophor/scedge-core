@@ -17,9 +17,9 @@ use crate::error::AppError;
 /// JWT claims structure
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Claims {
-    pub sub: String,       // Subject (tenant ID)
-    pub exp: usize,        // Expiration time
-    pub iat: usize,        // Issued at
+    pub sub: String, // Subject (tenant ID)
+    pub exp: usize,  // Expiration time
+    pub iat: usize,  // Issued at
     #[serde(default)]
     pub scopes: Vec<String>, // Permissions/scopes
 }
@@ -87,7 +87,9 @@ impl PolicyEngine {
 
     /// Validate JWT token
     pub fn validate_jwt(&self, token: &str) -> Result<Claims, AppError> {
-        let secret = self.jwt_secret.as_ref()
+        let secret = self
+            .jwt_secret
+            .as_ref()
             .ok_or_else(|| AppError::bad_request("JWT validation not configured"))?;
 
         let mut validation = Validation::new(Algorithm::HS256);
@@ -110,14 +112,19 @@ impl PolicyEngine {
     }
 
     /// Validate that a TTL doesn't exceed tenant limits
-    pub async fn validate_ttl(&self, tenant_id: &str, ttl_seconds: Option<u64>) -> Result<(), AppError> {
+    pub async fn validate_ttl(
+        &self,
+        tenant_id: &str,
+        ttl_seconds: Option<u64>,
+    ) -> Result<(), AppError> {
         if let Some(ttl) = ttl_seconds {
             if let Some(config) = self.get_tenant(tenant_id).await {
                 if let Some(max_ttl) = config.max_ttl_seconds {
                     if ttl > max_ttl {
-                        return Err(AppError::bad_request(
-                            format!("TTL {} exceeds maximum allowed {} for tenant {}", ttl, max_ttl, tenant_id)
-                        ));
+                        return Err(AppError::bad_request(format!(
+                            "TTL {} exceeds maximum allowed {} for tenant {}",
+                            ttl, max_ttl, tenant_id
+                        )));
                     }
                 }
             }
@@ -126,14 +133,19 @@ impl PolicyEngine {
     }
 
     /// Validate region access for a tenant
-    pub async fn validate_region(&self, tenant_id: &str, region: Option<&str>) -> Result<(), AppError> {
+    pub async fn validate_region(
+        &self,
+        tenant_id: &str,
+        region: Option<&str>,
+    ) -> Result<(), AppError> {
         if let Some(config) = self.get_tenant(tenant_id).await {
             if !config.allowed_regions.is_empty() {
                 if let Some(r) = region {
                     if !config.allowed_regions.contains(&r.to_string()) {
-                        return Err(AppError::bad_request(
-                            format!("Region {} not allowed for tenant {}", r, tenant_id)
-                        ));
+                        return Err(AppError::bad_request(format!(
+                            "Region {} not allowed for tenant {}",
+                            r, tenant_id
+                        )));
                     }
                 }
             }
@@ -142,7 +154,12 @@ impl PolicyEngine {
     }
 
     /// Validate compliance requirements
-    pub async fn validate_compliance(&self, tenant_id: &str, has_phi: bool, has_pii: bool) -> Result<(), AppError> {
+    pub async fn validate_compliance(
+        &self,
+        tenant_id: &str,
+        has_phi: bool,
+        has_pii: bool,
+    ) -> Result<(), AppError> {
         if let Some(config) = self.get_tenant(tenant_id).await {
             if config.require_phi_compliance && has_phi {
                 // In production, this would check for proper PHI handling

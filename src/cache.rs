@@ -45,7 +45,12 @@ use crate::model::{ArtifactPayload, CachedArtifact};
 #[async_trait]
 pub trait CacheBackend: Send + Sync {
     async fn get(&self, key: &str) -> Result<Option<CachedArtifact>, AppError>;
-    async fn set(&self, key: String, artifact: ArtifactPayload, expires_at: Option<DateTime<Utc>>) -> Result<CachedArtifact, AppError>;
+    async fn set(
+        &self,
+        key: String,
+        artifact: ArtifactPayload,
+        expires_at: Option<DateTime<Utc>>,
+    ) -> Result<CachedArtifact, AppError>;
     async fn delete(&self, key: &str) -> Result<bool, AppError>;
     async fn delete_many(&self, keys: &[String]) -> Result<usize, AppError>;
     async fn scan_by_pattern(&self, pattern: &str) -> Result<Vec<String>, AppError>;
@@ -59,16 +64,22 @@ pub struct RedisCache {
 
 impl RedisCache {
     pub fn new(redis_url: &str) -> Result<Self, AppError> {
-        let client = redis::Client::open(redis_url)
-            .map_err(|e| AppError::Internal(anyhow::anyhow!("Failed to create Redis client: {}", e)))?;
+        let client = redis::Client::open(redis_url).map_err(|e| {
+            AppError::Internal(anyhow::anyhow!("Failed to create Redis client: {}", e))
+        })?;
 
         Ok(Self { client })
     }
 
     /// Test the Redis connection
     pub async fn ping(&self) -> Result<(), AppError> {
-        let mut conn = self.client.get_multiplexed_async_connection().await
-            .map_err(|e| AppError::Internal(anyhow::anyhow!("Failed to connect to Redis: {}", e)))?;
+        let mut conn = self
+            .client
+            .get_multiplexed_async_connection()
+            .await
+            .map_err(|e| {
+                AppError::Internal(anyhow::anyhow!("Failed to connect to Redis: {}", e))
+            })?;
 
         redis::cmd("PING")
             .query_async::<_, String>(&mut conn)
@@ -86,17 +97,23 @@ impl RedisCache {
 #[async_trait]
 impl CacheBackend for RedisCache {
     async fn get(&self, key: &str) -> Result<Option<CachedArtifact>, AppError> {
-        let mut conn = self.client.get_multiplexed_async_connection().await
+        let mut conn = self
+            .client
+            .get_multiplexed_async_connection()
+            .await
             .map_err(|e| AppError::Internal(anyhow::anyhow!("Redis connection failed: {}", e)))?;
 
         let redis_key = self.build_redis_key(key);
-        let data: Option<String> = conn.get(&redis_key).await
+        let data: Option<String> = conn
+            .get(&redis_key)
+            .await
             .map_err(|e| AppError::Internal(anyhow::anyhow!("Redis GET failed: {}", e)))?;
 
         match data {
             Some(json) => {
-                let artifact: CachedArtifact = serde_json::from_str(&json)
-                    .map_err(|e| AppError::Internal(anyhow::anyhow!("Failed to deserialize artifact: {}", e)))?;
+                let artifact: CachedArtifact = serde_json::from_str(&json).map_err(|e| {
+                    AppError::Internal(anyhow::anyhow!("Failed to deserialize artifact: {}", e))
+                })?;
 
                 // Check if expired
                 if let Some(expires_at) = artifact.expires_at {
@@ -113,8 +130,16 @@ impl CacheBackend for RedisCache {
         }
     }
 
-    async fn set(&self, key: String, artifact: ArtifactPayload, expires_at: Option<DateTime<Utc>>) -> Result<CachedArtifact, AppError> {
-        let mut conn = self.client.get_multiplexed_async_connection().await
+    async fn set(
+        &self,
+        key: String,
+        artifact: ArtifactPayload,
+        expires_at: Option<DateTime<Utc>>,
+    ) -> Result<CachedArtifact, AppError> {
+        let mut conn = self
+            .client
+            .get_multiplexed_async_connection()
+            .await
             .map_err(|e| AppError::Internal(anyhow::anyhow!("Redis connection failed: {}", e)))?;
 
         let now = Utc::now();
@@ -125,22 +150,27 @@ impl CacheBackend for RedisCache {
             expires_at,
         };
 
-        let json = serde_json::to_string(&cached)
-            .map_err(|e| AppError::Internal(anyhow::anyhow!("Failed to serialize artifact: {}", e)))?;
+        let json = serde_json::to_string(&cached).map_err(|e| {
+            AppError::Internal(anyhow::anyhow!("Failed to serialize artifact: {}", e))
+        })?;
 
         let redis_key = self.build_redis_key(&key);
 
         if let Some(exp) = expires_at {
             let ttl = (exp - now).num_seconds();
             if ttl > 0 {
-                conn.set_ex(&redis_key, json, ttl as u64).await
-                    .map_err(|e| AppError::Internal(anyhow::anyhow!("Redis SETEX failed: {}", e)))?;
+                conn.set_ex::<_, _, ()>(&redis_key, json, ttl as u64)
+                    .await
+                    .map_err(|e| {
+                        AppError::Internal(anyhow::anyhow!("Redis SETEX failed: {}", e))
+                    })?;
             } else {
                 // Already expired, don't store
                 return Err(AppError::bad_request("Artifact already expired"));
             }
         } else {
-            conn.set(&redis_key, json).await
+            conn.set::<_, _, ()>(&redis_key, json)
+                .await
                 .map_err(|e| AppError::Internal(anyhow::anyhow!("Redis SET failed: {}", e)))?;
         }
 
@@ -148,11 +178,16 @@ impl CacheBackend for RedisCache {
     }
 
     async fn delete(&self, key: &str) -> Result<bool, AppError> {
-        let mut conn = self.client.get_multiplexed_async_connection().await
+        let mut conn = self
+            .client
+            .get_multiplexed_async_connection()
+            .await
             .map_err(|e| AppError::Internal(anyhow::anyhow!("Redis connection failed: {}", e)))?;
 
         let redis_key = self.build_redis_key(key);
-        let deleted: i32 = conn.del(&redis_key).await
+        let deleted: i32 = conn
+            .del(&redis_key)
+            .await
             .map_err(|e| AppError::Internal(anyhow::anyhow!("Redis DEL failed: {}", e)))?;
 
         Ok(deleted > 0)
@@ -163,21 +198,27 @@ impl CacheBackend for RedisCache {
             return Ok(0);
         }
 
-        let mut conn = self.client.get_multiplexed_async_connection().await
+        let mut conn = self
+            .client
+            .get_multiplexed_async_connection()
+            .await
             .map_err(|e| AppError::Internal(anyhow::anyhow!("Redis connection failed: {}", e)))?;
 
-        let redis_keys: Vec<String> = keys.iter()
-            .map(|k| self.build_redis_key(k))
-            .collect();
+        let redis_keys: Vec<String> = keys.iter().map(|k| self.build_redis_key(k)).collect();
 
-        let deleted: usize = conn.del(&redis_keys).await
+        let deleted: usize = conn
+            .del(&redis_keys)
+            .await
             .map_err(|e| AppError::Internal(anyhow::anyhow!("Redis DEL failed: {}", e)))?;
 
         Ok(deleted)
     }
 
     async fn scan_by_pattern(&self, pattern: &str) -> Result<Vec<String>, AppError> {
-        let mut conn = self.client.get_multiplexed_async_connection().await
+        let mut conn = self
+            .client
+            .get_multiplexed_async_connection()
+            .await
             .map_err(|e| AppError::Internal(anyhow::anyhow!("Redis connection failed: {}", e)))?;
 
         let search_pattern = format!("scedge:artifact:{}", pattern);
@@ -229,7 +270,12 @@ impl Cache {
         self.backend.get(key).await
     }
 
-    pub async fn set(&self, key: String, artifact: ArtifactPayload, expires_at: Option<DateTime<Utc>>) -> Result<CachedArtifact, AppError> {
+    pub async fn set(
+        &self,
+        key: String,
+        artifact: ArtifactPayload,
+        expires_at: Option<DateTime<Utc>>,
+    ) -> Result<CachedArtifact, AppError> {
         self.backend.set(key, artifact, expires_at).await
     }
 

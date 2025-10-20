@@ -181,10 +181,14 @@ Configure via environment variables (see [.env.example](.env.example)):
 |----------|---------|-------------|
 | `SCEDGE_PORT` | `8080` | HTTP server port |
 | `SCEDGE_REDIS_URL` | `redis://127.0.0.1:6379` | Redis connection URL |
+| `SCEDGE_UPSTREAM_URL` | - | Base URL for SynaGraph lookups |
+| `SCEDGE_UPSTREAM_TIMEOUT_SECS` | `5` | Timeout (seconds) for upstream calls |
 | `SCEDGE_DEFAULT_TTL` | `86400` | Default TTL in seconds |
 | `SCEDGE_TENANT_KEYS_PATH` | - | Path to tenant configuration JSON |
 | `SCEDGE_JWT_SECRET` | - | Secret for JWT validation |
 | `SCEDGE_EVENT_BUS_ENABLED` | `true` | Enable event bus |
+| `SCEDGE_EVENT_BUS_URL` | `nats://127.0.0.1:4222` | NATS server for graph invalidation events |
+| `SCEDGE_EVENT_BUS_CHANNEL` | `synagraph.cache` | NATS subject to subscribe for invalidation events |
 | `SCEDGE_METRICS_ENABLED` | `true` | Enable Prometheus metrics |
 
 ---
@@ -266,7 +270,12 @@ docker-compose -f examples/docker-compose.yml up redis
 
 # Run with hot-reload
 cargo watch -x run
+
+# Run alongside SynaGraph (see QUICKSTART.md for full workflow)
+docker compose -f docker-compose.scedge.yml up -d
 ```
+
+The compose file exports `SCEDGE_UPSTREAM_URL` so cache misses hydrate directly from the `synagraph` service on `memonet`, and points `SCEDGE_EVENT_BUS_URL`/`SCEDGE_EVENT_BUS_CHANNEL` at the shared NATS subject so graph invalidations propagate automatically.
 
 ---
 

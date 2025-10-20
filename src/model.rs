@@ -111,7 +111,7 @@ pub struct StoreResponse {
     pub expires_at: Option<DateTime<Utc>>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LookupResponse {
     pub key: String,
     pub artifact: ArtifactPayload,

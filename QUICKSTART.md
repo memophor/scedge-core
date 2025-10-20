@@ -192,16 +192,80 @@ cd examples
 docker-compose up
 ```
 
+## Run with SynaGraph
+
+Use the dedicated compose file when you want Scedge Core to share the `memonet` network with an existing [SynaGraph](https://github.com/memophor/synagraph) stack.
+
+1. Make sure the shared Docker network exists:
+
+   ```bash
+   docker network inspect memonet >/dev/null 2>&1 || docker network create memonet
+   ```
+
+2. Start or verify your SynaGraph services (they must attach to the same `memonet` network).
+
+3. From the Scedge repository root, start the Scedge services:
+
+   ```bash
+   docker compose -f docker-compose.scedge.yml up -d
+   ```
+
+   The compose file builds Scedge from the local checkout (`build: .`). Update the path if you run the compose file from a different directory.
+
+4. Confirm the stack is healthy:
+
+   ```bash
+   curl -s http://localhost:8090/healthz | jq .
+   ```
+
+5. Exercise the cache (Scedge now hydrates cold keys from SynaGraph automatically):
+
+   ```bash
+   # First lookup hydrates from SynaGraph and caches the capsule
+   curl -s "http://localhost:8090/lookup?tenant=acme&key=acme:analytics:report" | jq .
+
+   # Second lookup is a HIT from Redis (<50ms)
+   curl -s "http://localhost:8090/lookup?tenant=acme&key=acme:analytics:report" | jq .
+
+   # Optional: seed manually if your SynaGraph instance has no data yet
+   curl -s -X POST http://localhost:8090/store \
+     -H "content-type: application/json" \
+     -d '{
+       "key": "acme:analytics:report",
+       "artifact": {
+         "answer": "Quarterly revenue was up 23%.",
+         "policy": {"tenant": "acme", "phi": false, "pii": false},
+         "provenance": [{"source": "syna:demo", "hash": "demo-1"}],
+         "hash": "demo-1",
+         "ttl_seconds": 3600
+       }
+     }' | jq .
+
+   # Optional: purge and watch the next lookup hydrate again
+   curl -s -X POST http://localhost:8090/purge \
+     -H "content-type: application/json" \
+     -d '{"tenant":"acme", "key":"acme:analytics:report"}' | jq .
+   ```
+
+6. Open the UI at http://localhost:8090 to watch cache hit metrics update while you test.
+
+With the event bus enabled, updates emitted on the `synagraph.cache` NATS subject flow straight into Scedge and invalidate cached capsules in real time.
+
+
 ## Environment Variables Reference
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `SCEDGE_PORT` | `8080` | HTTP server port |
 | `SCEDGE_REDIS_URL` | `redis://127.0.0.1:6379` | Redis connection URL |
+| `SCEDGE_UPSTREAM_URL` | - | Base URL for SynaGraph lookups |
+| `SCEDGE_UPSTREAM_TIMEOUT_SECS` | `5` | Timeout in seconds for upstream calls |
 | `SCEDGE_DEFAULT_TTL` | `86400` | Default TTL in seconds (24h) |
 | `SCEDGE_TENANT_KEYS_PATH` | - | Path to tenants.json |
 | `SCEDGE_JWT_SECRET` | - | Secret for JWT validation |
 | `SCEDGE_EVENT_BUS_ENABLED` | `true` | Enable event bus |
+| `SCEDGE_EVENT_BUS_URL` | `nats://127.0.0.1:4222` | NATS server for graph invalidation events |
+| `SCEDGE_EVENT_BUS_CHANNEL` | `synagraph.cache` | NATS subject for invalidation events |
 | `SCEDGE_METRICS_ENABLED` | `true` | Enable Prometheus metrics |
 | `SCEDGE_LOG_LEVEL` | `info` | Log level (error/warn/info/debug/trace) |
 

@@ -25,15 +25,20 @@
 //! All handlers enforce tenant isolation, policy validation, and observability.
 
 use axum::extract::{Query, State};
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::HeaderMap;
 use axum::Json;
-use chrono::{DateTime, Duration, Utc};
+use chrono::{Duration, Utc};
+use tokio::time::Instant;
 
 use crate::cache::Cache;
 use crate::error::AppError;
 use crate::metrics::Metrics;
-use crate::model::{LookupQuery, LookupResponse, PurgeRequest, PurgeResponse, StoreRequest, StoreResponse, StoreStatus};
+use crate::model::{
+    LookupQuery, LookupResponse, PurgeRequest, PurgeResponse, StoreRequest, StoreResponse,
+    StoreStatus,
+};
 use crate::policy::PolicyEngine;
+use crate::upstream::UpstreamClient;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -41,6 +46,7 @@ pub struct AppState {
     pub metrics: Metrics,
     pub policy: PolicyEngine,
     pub default_ttl_seconds: u64,
+    pub upstream: Option<UpstreamClient>,
 }
 
 /// Health check endpoint
@@ -80,20 +86,32 @@ pub async fn handle_store(
     }
 
     // Validate TTL against tenant limits
-    state.policy.validate_ttl(tenant_id, request.artifact.ttl_seconds).await?;
+    state
+        .policy
+        .validate_ttl(tenant_id, request.artifact.ttl_seconds)
+        .await?;
 
     // Validate region access
-    state.policy.validate_region(tenant_id, request.artifact.policy.region.as_deref()).await?;
+    state
+        .policy
+        .validate_region(tenant_id, request.artifact.policy.region.as_deref())
+        .await?;
 
     // Validate compliance requirements
-    state.policy.validate_compliance(
-        tenant_id,
-        request.artifact.policy.phi,
-        request.artifact.policy.pii,
-    ).await?;
+    state
+        .policy
+        .validate_compliance(
+            tenant_id,
+            request.artifact.policy.phi,
+            request.artifact.policy.pii,
+        )
+        .await?;
 
     // Calculate expiration
-    let ttl_seconds = request.artifact.ttl_seconds.unwrap_or(state.default_ttl_seconds);
+    let ttl_seconds = request
+        .artifact
+        .ttl_seconds
+        .unwrap_or(state.default_ttl_seconds);
     let expires_at = if ttl_seconds > 0 {
         Some(Utc::now() + Duration::seconds(ttl_seconds as i64))
     } else {
@@ -101,7 +119,10 @@ pub async fn handle_store(
     };
 
     // Store in cache
-    let cached = state.cache.set(request.key.clone(), request.artifact, expires_at).await?;
+    let cached = state
+        .cache
+        .set(request.key.clone(), request.artifact, expires_at)
+        .await?;
 
     // Record metrics
     state.metrics.record_cache_store();
@@ -160,6 +181,97 @@ pub async fn handle_lookup(
         }
         None => {
             state.metrics.record_cache_miss();
+            if let Some(upstream) = &state.upstream {
+                state.metrics.record_upstream_request();
+                let start = Instant::now();
+
+                match upstream.lookup(&query.key, query.tenant.as_deref()).await {
+                    Ok(Some(upstream_record)) => {
+                        state
+                            .metrics
+                            .record_upstream_latency(start.elapsed().as_secs_f64());
+
+                        let tenant_id = &upstream_record.artifact.policy.tenant;
+
+                        if let Some(requested_tenant) = &query.tenant {
+                            if requested_tenant != tenant_id {
+                                tracing::warn!(
+                                    requested = %requested_tenant,
+                                    upstream = %tenant_id,
+                                    key = %query.key,
+                                    "Tenant mismatch between request and upstream response",
+                                );
+                                state.metrics.record_upstream_failure();
+                                return Err(AppError::not_found("cache miss"));
+                            }
+                        }
+
+                        if let Some(api_key) =
+                            headers.get("x-api-key").and_then(|h| h.to_str().ok())
+                        {
+                            state.policy.validate_api_key(tenant_id, api_key).await?;
+                        }
+
+                        let mut expires_at = upstream_record.expires_at;
+
+                        if expires_at.is_none() {
+                            if let Some(ttl_remaining) = upstream_record.ttl_remaining_seconds {
+                                if ttl_remaining > 0 {
+                                    expires_at =
+                                        Some(Utc::now() + Duration::seconds(ttl_remaining as i64));
+                                }
+                            }
+                        }
+
+                        if expires_at.is_none() {
+                            if let Some(ttl) = upstream_record.artifact.ttl_seconds {
+                                if ttl > 0 {
+                                    expires_at = Some(Utc::now() + Duration::seconds(ttl as i64));
+                                }
+                            }
+                        }
+
+                        if expires_at.is_none() && state.default_ttl_seconds > 0 {
+                            expires_at = Some(
+                                Utc::now() + Duration::seconds(state.default_ttl_seconds as i64),
+                            );
+                        }
+
+                        let cached = state
+                            .cache
+                            .set(query.key.clone(), upstream_record.artifact, expires_at)
+                            .await?;
+
+                        state.metrics.record_cache_store();
+                        tracing::debug!(key = %cached.key, "cached artifact from upstream");
+
+                        let now = Utc::now();
+                        let ttl_remaining = cached.ttl_remaining_seconds(now);
+
+                        let response = LookupResponse {
+                            key: cached.key,
+                            artifact: cached.artifact,
+                            expires_at: cached.expires_at,
+                            ttl_remaining_seconds: ttl_remaining,
+                        };
+
+                        return Ok(Json(response));
+                    }
+                    Ok(None) => {
+                        state
+                            .metrics
+                            .record_upstream_latency(start.elapsed().as_secs_f64());
+                    }
+                    Err(err) => {
+                        state.metrics.record_upstream_failure();
+                        state
+                            .metrics
+                            .record_upstream_latency(start.elapsed().as_secs_f64());
+                        return Err(err);
+                    }
+                }
+            }
+
             Err(AppError::not_found("cache miss"))
         }
     }
@@ -171,7 +283,7 @@ pub async fn handle_purge(
     headers: HeaderMap,
     Json(request): Json<PurgeRequest>,
 ) -> Result<Json<PurgeResponse>, AppError> {
-    let mut purged = 0;
+    let purged;
 
     // Validate API key for tenant if specified
     if let Some(tenant_id) = &request.tenant {
@@ -198,7 +310,10 @@ pub async fn handle_purge(
 
         for key in keys {
             if let Ok(Some(artifact)) = state.cache.get(&key).await {
-                let has_hash = artifact.artifact.provenance.iter()
+                let has_hash = artifact
+                    .artifact
+                    .provenance
+                    .iter()
                     .any(|p| p.hash.as_deref() == Some(prov_hash.as_str()))
                     || artifact.artifact.hash == *prov_hash;
 
@@ -210,7 +325,9 @@ pub async fn handle_purge(
 
         purged = state.cache.delete_many(&to_purge).await?;
     } else {
-        return Err(AppError::bad_request("must specify keys, tenant, or provenance_hash"));
+        return Err(AppError::bad_request(
+            "must specify keys, tenant, or provenance_hash",
+        ));
     }
 
     state.metrics.record_cache_purge(purged);

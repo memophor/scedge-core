@@ -1,0 +1,26 @@
+networks:
+  memonet:
+    external: true
+
+services:
+  redis:
+    image: redis:7
+    container_name: scedge-redis
+    networks: [memonet]
+
+  scedge:
+    build: .                  # adjust if this compose file lives outside the repo
+    # image: memophor/scedge-core:latest
+    container_name: scedge
+    depends_on: [redis]
+    environment:
+      SCEDGE_PORT: "8090"
+      SCEDGE_REDIS_URL: redis://redis:6379/0
+      SCEDGE_UPSTREAM_URL: http://synagraph:8080
+      SCEDGE_UPSTREAM_TIMEOUT_SECS: "5"
+      SCEDGE_EVENT_BUS_ENABLED: "true"
+      SCEDGE_EVENT_BUS_URL: nats://synagraph-nats:4222
+      SCEDGE_EVENT_BUS_CHANNEL: synagraph.cache
+    ports:
+      - "8090:8090"   # Scedge API/UI
+    networks: [memonet]

@@ -45,6 +45,7 @@ mod events;
 mod metrics;
 mod model;
 mod policy;
+mod upstream;
 
 use axum::routing::{get, post};
 use axum::Router;
@@ -52,12 +53,15 @@ use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::EnvFilter;
 
-use crate::api::{handle_lookup, handle_purge, handle_store, health, metrics as metrics_handler, AppState};
+use crate::api::{
+    handle_lookup, handle_purge, handle_store, health, metrics as metrics_handler, AppState,
+};
 use crate::cache::{Cache, RedisCache};
 use crate::config::AppConfig;
 use crate::events::{EventBus, EventBusConfig};
 use crate::metrics::Metrics;
 use crate::policy::PolicyEngine;
+use crate::upstream::UpstreamClient;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -115,11 +119,27 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
+    // Configure upstream hydration client (for cache misses)
+    let upstream_client = match config.upstream.clone() {
+        Some(cfg) => {
+            tracing::info!(
+                base_url = %cfg.base_url,
+                timeout_secs = cfg.timeout.as_secs(),
+                "Upstream lookup enabled"
+            );
+            Some(UpstreamClient::try_new(cfg)?)
+        }
+        None => {
+            tracing::info!("Upstream lookup disabled");
+            None
+        }
+    };
+
     // Initialize event bus
     if config.event_bus_enabled {
         tracing::info!(channel = %config.event_bus_channel, "Starting event bus");
         let event_config = EventBusConfig {
-            redis_url: config.redis_url.clone(),
+            url: config.event_bus_url.clone(),
             channel: config.event_bus_channel.clone(),
         };
         let mut event_bus = EventBus::new(event_config, cache.clone());
@@ -134,6 +154,7 @@ async fn main() -> anyhow::Result<()> {
         metrics: metrics.clone(),
         policy: policy_engine,
         default_ttl_seconds: config.default_ttl().as_secs(),
+        upstream: upstream_client,
     };
 
     // Build router
